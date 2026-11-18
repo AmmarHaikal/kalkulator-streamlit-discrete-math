@@ -13,9 +13,33 @@ st.set_page_config(
     layout="centered",
 )
 
+# --- CSS agar grid tombol tetap rapi sejajar di HP maupun Laptop ---
+st.markdown(
+    """
+    <style>
+    div[data-testid="stHorizontalBlock"] {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 6px !important;
+    }
+    div[data-testid="stColumn"] {
+        min-width: 0 !important;
+    }
+    div.stButton > button {
+        white-space: nowrap !important;
+        padding: 0.45rem 0.25rem !important;
+        font-weight: 600 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # --- Inisialisasi State ---
-if "expr_input" not in st.session_state:
-    st.session_state.expr_input = ""
+if "expression" not in st.session_state:
+    st.session_state.expression = ""
+if "input_ver" not in st.session_state:
+    st.session_state.input_ver = 0
 if "last_result" not in st.session_state:
     st.session_state.last_result = None
 if "last_expr" not in st.session_state:
@@ -137,24 +161,47 @@ def safe_eval(raw_expr: str) -> float:
     return float(_eval(tree.body))
 
 
-# --- Callback Tombol Keypad ---
+# --- Helper & Callback Tombol ---
+def get_current_text() -> str:
+    widget_key = f"input_{st.session_state.input_ver}"
+    return st.session_state.get(widget_key, st.session_state.expression)
+
+
+def sync_from_typing():
+    st.session_state.expression = get_current_text()
+
+
 def append_token(token: str):
-    st.session_state.expr_input += token
+    curr = get_current_text()
+    st.session_state.expression = curr + token
     st.session_state.error_msg = ""
+    st.session_state.input_ver += 1
 
 
 def backspace_token():
-    st.session_state.expr_input = st.session_state.expr_input[:-1]
+    curr = get_current_text()
+    if curr.endswith("√("):
+        curr = curr[:-2]
+    elif curr.lower().endswith("ans"):
+        curr = curr[:-3]
+    else:
+        curr = curr[:-1]
+    st.session_state.expression = curr
     st.session_state.error_msg = ""
+    st.session_state.input_ver += 1
 
 
 def clear_all():
-    st.session_state.expr_input = ""
+    st.session_state.expression = ""
+    st.session_state.last_result = None
+    st.session_state.last_expr = ""
     st.session_state.error_msg = ""
+    st.session_state.input_ver += 1
 
 
 def hitung_ekspresi():
-    ekspresi = st.session_state.expr_input.strip()
+    ekspresi = get_current_text().strip()
+    st.session_state.expression = ekspresi
     if not ekspresi:
         st.session_state.error_msg = "Silakan masukkan perhitungan terlebih dahulu."
         return
@@ -182,8 +229,9 @@ def hitung_ekspresi():
 
 def lanjut_dengan_hasil():
     if st.session_state.last_result is not None:
-        st.session_state.expr_input = format_number(st.session_state.last_result).replace(",", "")
+        st.session_state.expression = format_number(st.session_state.last_result).replace(",", "")
         st.session_state.error_msg = ""
+        st.session_state.input_ver += 1
 
 
 # --- Sidebar Info Kelompok ---
@@ -201,9 +249,9 @@ with st.sidebar:
     st.subheader("📖 Panduan Singkat")
     st.markdown(
         """
-        - **Banyak Angka:** Bebas gabung operasi, misal `12 + 8 * 5 - 4 / 2`
+        - **Banyak Angka:** Bebas gabung operasi, misal `12+8*5-4/2`
         - **Pangkat & Akar:** Gunakan `^` (misal `2^5`, `16^(1/2)`, `27^(1/3)`), simbol `√(144)`, atau `root(27, 3)`
-        - **Persen:** Ketik langsung dengan `%`, misalnya `250000 * 15%`
+        - **Persen:** Ketik langsung dengan `%`, misalnya `250000*15%`
         - **Hitung Lanjutan:** Gunakan `Ans` atau tombol **Gunakan Hasil**
         """
     )
@@ -215,15 +263,17 @@ st.caption("Kalkulator Multi-Operasi Berbasis Python & Streamlit")
 with st.container(border=True):
     st.text_input(
         "Layar Perhitungan (bisa ketik langsung atau klik tombol di bawah):",
-        key="expr_input",
-        placeholder="Contoh: (125000 * 20%) + 16^(1/2) + √(81)",
+        value=st.session_state.expression,
+        key=f"input_{st.session_state.input_ver}",
+        on_change=sync_from_typing,
+        placeholder="Contoh: (125000*20%) + 16^(1/2) + √(81)",
     )
 
     # Tampilan Hasil atau Error
     if st.session_state.error_msg:
         st.error(st.session_state.error_msg)
     elif st.session_state.last_result is not None:
-        col_res, col_ans = st.columns([3, 1], vertical_alignment="center")
+        col_res, col_ans = st.columns([2.5, 1.2], vertical_alignment="center")
         with col_res:
             st.metric(
                 label=f"Hasil: {st.session_state.last_expr}",
@@ -231,7 +281,7 @@ with st.container(border=True):
             )
         with col_ans:
             st.button(
-                "Gunakan Hasil",
+                "Pakai Hasil",
                 on_click=lanjut_dengan_hasil,
                 use_container_width=True,
                 help="Masukkan hasil ini ke layar untuk hitungan lanjutan",
@@ -247,30 +297,30 @@ with st.container(border=True):
     f4.button("√", on_click=append_token, args=("√(",), use_container_width=True)
     f5.button("%", on_click=append_token, args=("%",), use_container_width=True)
 
-    # Keypad Angka & Operator Utama
+    # Keypad Angka & Operator Utama (tanpa spasi berlebih)
     r1 = st.columns(4)
     r1[0].button("7", on_click=append_token, args=("7",), use_container_width=True)
     r1[1].button("8", on_click=append_token, args=("8",), use_container_width=True)
     r1[2].button("9", on_click=append_token, args=("9",), use_container_width=True)
-    r1[3].button("÷", on_click=append_token, args=(" ÷ ",), use_container_width=True)
+    r1[3].button("÷", on_click=append_token, args=("÷",), use_container_width=True)
 
     r2 = st.columns(4)
     r2[0].button("4", on_click=append_token, args=("4",), use_container_width=True)
     r2[1].button("5", on_click=append_token, args=("5",), use_container_width=True)
     r2[2].button("6", on_click=append_token, args=("6",), use_container_width=True)
-    r2[3].button("×", on_click=append_token, args=(" × ",), use_container_width=True)
+    r2[3].button("×", on_click=append_token, args=("×",), use_container_width=True)
 
     r3 = st.columns(4)
     r3[0].button("1", on_click=append_token, args=("1",), use_container_width=True)
     r3[1].button("2", on_click=append_token, args=("2",), use_container_width=True)
     r3[2].button("3", on_click=append_token, args=("3",), use_container_width=True)
-    r3[3].button("-", on_click=append_token, args=(" - ",), use_container_width=True)
+    r3[3].button("-", on_click=append_token, args=("-",), use_container_width=True)
 
     r4 = st.columns(4)
     r4[0].button("0", on_click=append_token, args=("0",), use_container_width=True)
     r4[1].button(".", on_click=append_token, args=(".",), use_container_width=True)
     r4[2].button("Ans", on_click=append_token, args=("Ans",), use_container_width=True)
-    r4[3].button("+", on_click=append_token, args=(" + ",), use_container_width=True)
+    r4[3].button("+", on_click=append_token, args=("+",), use_container_width=True)
 
     # Baris Kontrol (AC, Backspace, Hitung)
     c1, c2, c3 = st.columns([1, 1, 2])
@@ -291,7 +341,7 @@ if st.session_state.history:
     dl_col, clr_col = st.columns(2)
     with dl_col:
         st.download_button(
-            "📥 Download Riwayat (CSV)",
+            "📥 Download CSV",
             data=csv_buffer.getvalue(),
             file_name="riwayat_kalkulator.csv",
             mime="text/csv",
